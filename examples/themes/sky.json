@@ -1,0 +1,20 @@
+{
+  "name": "sky",
+  "description": "Sun crosses the dial from sunrise to sunset, a crescent moon takes over at night. Needs `location` or `sun` in config.",
+  "palette": {"ink": "#2a2a2a", "paper": "#dfe8f2", "accent": "#f6c343", "moon": "#d8dbe6"},
+  "dial": {"center": [0.5, 0.5], "radius": 0.30, "padding": 1.6},
+  "layers": [
+    {"type": "background", "source": "schedule", "color": "@paper"},
+    {"type": "orbiter", "name": "sun",  "driver": "sun",  "radius": 1.35, "arc": [270, 90],
+     "shape": {"kind": "circle", "color": "@accent", "size": 0.22}},
+    {"type": "orbiter", "name": "moon", "driver": "moon", "radius": 1.35, "arc": [270, 90],
+     "shape": {"kind": "crescent", "color": "@moon", "shadow": "@paper", "size": 0.20}},
+    {"type": "markers", "count": 12, "style": "tick", "radius": 1.0, "size": 0.02, "length": 0.08, "color": "@ink",
+     "emphasize": {"every": 3, "size": 0.035}},
+    {"type": "hands",
+     "hour":   {"length": 0.55, "tail": 0.0, "width": 0.05, "color": "@ink", "shape": "tapered"},
+     "minute": {"length": 0.85, "tail": 0.0, "width": 0.035, "color": "@ink", "shape": "tapered"},
+     "hub": {"size": 0.06, "color": "@ink"}},
+    {"type": "text", "text": "%H:%M", "position": [0.5, 0.90], "size": 0.16, "color": "@ink"}
+  ]
+}

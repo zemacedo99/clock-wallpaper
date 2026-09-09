@@ -1,0 +1,9 @@
+# time  -> background image            | caption (optional) | extras (optional: key=value ...)
+# Paths are relative to this file.  Palette overrides such as ink=#ffffff recolour
+# every "@ink" colour in the theme while the slot is active.
+
+06:00 -> backgrounds/morning.png       | Good morning
+09:00 -> backgrounds/work.png          | Focus
+18:00 -> backgrounds/leave-office.png  | Leave office
+20:00 -> backgrounds/evening.png       | Evening            | ink=#f3ede4
+23:00 -> backgrounds/night.png         | Good night         | ink=#e6e6ef tint=#00000040

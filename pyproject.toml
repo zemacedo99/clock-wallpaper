@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wallclock"
+version = "0.1.0"
+description = "Battery-friendly dynamic clock wallpaper: renders a static image only when the time display changes."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = ["Pillow>=9.0"]
+
+[project.scripts]
+wallclock = "wallclock.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["wallclock*"]

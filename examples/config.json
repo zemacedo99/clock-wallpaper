@@ -1,0 +1,11 @@
+{
+  "theme": "themes/minimal.json",
+  "schedule": "schedule.txt",
+  "resolution": "auto",
+  "output_dir": "~/.wallclock/out",
+  "location": {"lat": 41.15, "lon": -8.61},
+  "min_update_seconds": 60,
+  "max_sleep_seconds": 3600,
+  "supersample": 3,
+  "platform": "auto"
+}

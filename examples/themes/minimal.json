@@ -1,0 +1,17 @@
+{
+  "name": "minimal",
+  "description": "Minimal analog clock: twelve dots, two rounded hands, a caption from the schedule.",
+  "palette": {"ink": "#2a2a2a", "paper": "#efe9df", "accent": "#d9542b"},
+  "dial": {"center": [0.5, 0.5], "radius": 0.34, "reference": "min", "padding": 1.4},
+  "layers": [
+    {"type": "background", "source": "schedule", "color": "@paper", "fit": "cover"},
+    {"type": "markers", "count": 12, "style": "dot", "radius": 1.0, "size": 0.022, "color": "@ink",
+     "emphasize": {"every": 3, "size": 0.036}},
+    {"type": "hands",
+     "hour":   {"length": 0.52, "tail": 0.10, "width": 0.055, "color": "@ink", "shape": "rounded"},
+     "minute": {"length": 0.82, "tail": 0.10, "width": 0.035, "color": "@ink", "shape": "rounded"},
+     "hub":    {"size": 0.07, "color": "@ink", "inner_size": 0.024, "inner_color": "@paper"},
+     "smooth": true},
+    {"type": "text", "text": "{caption}", "position": [0.5, 0.92], "size": 0.13, "color": "@ink"}
+  ]
+}

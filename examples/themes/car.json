@@ -1,0 +1,17 @@
+{
+  "name": "car",
+  "description": "A car laps the dial once an hour (it is the minute hand); the hour is a short tapered hand.",
+  "palette": {"ink": "#2a2a2a", "paper": "#e9e4d8", "road": "#3a3a3a"},
+  "dial": {"center": [0.5, 0.5], "radius": 0.32, "padding": 1.5},
+  "layers": [
+    {"type": "background", "source": "schedule", "color": "@paper"},
+    {"type": "markers", "name": "road", "count": 60, "style": "dot", "radius": 1.0, "size": 0.012, "color": "@road",
+     "emphasize": {"every": 5, "size": 0.03}},
+    {"type": "hands",
+     "hour": {"length": 0.55, "tail": 0.08, "width": 0.06, "color": "@ink", "shape": "tapered"},
+     "hub": {"size": 0.08, "color": "@ink", "inner_size": 0.03, "inner_color": "@paper"}},
+    {"type": "orbiter", "name": "car", "driver": "minute", "radius": 1.0,
+     "image": "../sprites/car.png", "size": 0.16, "rotate": true, "heading_offset": 90},
+    {"type": "text", "text": "{caption}", "position": [0.5, 0.92], "size": 0.12, "color": "@ink"}
+  ]
+}
