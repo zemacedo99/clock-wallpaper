@@ -1,6 +1,7 @@
 #include "wallclock/core.h"
 #include "wallclock/renderer.h"
 #include "wallclock/bridge.h"
+#include "wallclock/scheduler.h"
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -101,6 +102,75 @@ int main(int argc,char** argv) {
         auto second=wc::local_time(rollback);auto second_scene=wc::select_scene(dst,second);second_scene.theme.update_seconds=0;
         check(second_scene.theme.text=="Before","DST repeated hour selects earlier rule");
         check(wc::next_change(dst,second_scene,rollback)==rollback+1800,"DST second rule occurrence scheduled");
+        // Preserve Python's useful scheduler tests, and assert actual retry delays.
+        std::time_t fake=12000;int attempts=0;std::vector<std::time_t> called;std::vector<int> sleeps;std::vector<std::string> logs;
+        wc::LoopHost host{[&]{return fake;},[&](std::time_t until){sleeps.push_back(int(until-fake));fake=until;return wc::Wake::deadline;},[]{return true;},[&](const std::string& s){logs.push_back(s);}};
+        wc::run_loop([&](std::time_t n,bool){called.push_back(n);if(++attempts==2) throw std::runtime_error("temporary apply error");return n+60;},host,3);
+        check(called==std::vector<std::time_t>({12000,12060,12120,12180}),"transient apply error retries after 60s, not Python's hour");
+        check(logs.size()==2 && logs[1].find("recovered")!=std::string::npos,"failure and recovery logged");
+        fake=20000;attempts=0;sleeps.clear();
+        host.wait=[&](std::time_t until){sleeps.push_back(int(until-fake));fake=until;return ++attempts==5?wc::Wake::stop:wc::Wake::deadline;};
+        wc::run_loop([](std::time_t,bool)->std::time_t{throw std::runtime_error("persistent");},host);
+        check(sleeps==std::vector<int>({60,120,240,300,300}),"bounded failure backoff");
+        fake=30000;attempts=0;called.clear();sleeps.clear();
+        host.wait=[&](std::time_t until){sleeps.push_back(int(until-fake));fake=until;return wc::Wake::deadline;};
+        wc::run_loop([&](std::time_t n,bool){called.push_back(n);if(++attempts==1) fake+=70;return n+60;},host,2);
+        check(called==std::vector<std::time_t>({30000,30070}) && sleeps.empty(),"render crossing boundary catches up without skipping minute");
+        bool shown=false;fake=40000;called.clear();
+        host.visible=[&]{return shown;};host.wait=[&](std::time_t){fake+=7200;shown=true;return wc::Wake::visibility;};
+        wc::run_loop([&](std::time_t n,bool){called.push_back(n);return n+60;},host,1);
+        check(called==std::vector<std::time_t>({47200}),"hidden clock does no work and resumes with current time");
+        host.visible=[]{return true;};fake=50000;called.clear();
+        host.wait=[&](std::time_t){fake-=3600;return wc::Wake::environment;};
+        wc::run_loop([&](std::time_t n,bool){called.push_back(n);return n+60;},host,2);
+        check(called==std::vector<std::time_t>({50000,46400}),"backwards wall-clock correction forces current-time update");
+        fake=60000;attempts=0;sleeps.clear();
+        host.wait=[&](std::time_t until){sleeps.push_back(int(until-fake));if(++attempts==1){fake-=3600;return wc::Wake::environment;}fake=until;return wc::Wake::stop;};
+        wc::run_loop([](std::time_t,bool)->std::time_t{throw std::runtime_error("transient during clock correction");},host);
+        check(sleeps==std::vector<int>({60,60}),"backwards time change preserves bounded failure retry");
+        for(int correction:{-3600,3600}) {
+            fake=60000;attempts=0;sleeps.clear();long long monotonic=0;int updates=0;
+            host.monotonic_ms=[&]{return monotonic;};
+            host.wait=[&](std::time_t until){
+                sleeps.push_back(int(until-fake));
+                if(++attempts==1){fake+=correction;monotonic+=10000;return wc::Wake::environment;}
+                monotonic+=(until-fake)*1000;fake=until;return wc::Wake::deadline;
+            };
+            wc::run_loop([&](std::time_t n,bool)->std::time_t{if(++updates==1)throw std::runtime_error("temporary");return n+60;},host,1);
+            check(sleeps==std::vector<int>({60,50}) && monotonic==60000,"monotonic retry survives wall-clock jump without shortening or extending backoff");
+            host.monotonic_ms={};
+        }
+        // Seven days of minute deadlines, including the autumn DST fold. This is
+        // simulated scheduling, not a substitute for a real overnight Windows soak.
+        auto week_start=at(12,0);week_start.tm_mon=9;week_start.tm_mday=31;
+        fake=std::mktime(&week_start);auto first_tick=fake;unsigned ticks=0;bool aligned=true;
+        host.wait=[&](std::time_t until){aligned=aligned && until>fake && until-fake<=60;fake=until;return wc::Wake::deadline;};
+        wc::run_loop([&](std::time_t n,bool){++ticks;auto local=wc::local_time(n);return renderer.next_change(c,wc::select_scene(c,local),n);},host,10081);
+        check(ticks==10081 && aligned && fake-first_tick==7*24*3600,"seven simulated days including DST retain minute alignment without drift");
+        wc::Scene static_layers=wc::select_scene(c,at(12,0));static_layers.theme.elements.clear();
+        wc::Element marker;marker.kind="markers";static_layers.theme.elements.push_back(marker);
+        auto noon=at(12,0);auto noon_epoch=std::mktime(&noon);
+        check(renderer.next_change(c,static_layers,noon_epoch)>noon_epoch+60,"static layers do not tick at default theme cadence");
+        wc::Element sun;sun.kind="orbit";sun.source="span";sun.visible_from=360;sun.visible_until=1080;
+        check(!wc::element_visible(sun,at(5,59)) && wc::element_visible(sun,at(6,0)) && !wc::element_visible(sun,at(18,0)),"sun inclusive appearance/exclusive disappearance");
+        check(std::fmod(wc::element_angle(sun,at(12,0)),360)==0,"sun at top halfway through visible span");
+        wc::Element moon=sun;moon.visible_from=1080;moon.visible_until=360;
+        check(wc::element_visible(moon,at(23,59)) && wc::element_visible(moon,at(0,1)) && !wc::element_visible(moon,at(12,0)),"moon interval wraps midnight");
+        auto night=at(22,0);auto night_epoch=std::mktime(&night);
+        check(wc::element_next_change(sun,static_layers.theme,night_epoch)>night_epoch+60,"hidden sun still schedules tomorrow instead of returning never");
+        wc::Element comet;comet.kind="comet";
+        renderer.register_element("comet",[](wc::Image&,const wc::Element&,const wc::RenderContext&){},[](const wc::Element&,const wc::Theme&,std::time_t n){return n+120;});
+        static_layers.theme.elements={comet};
+        check(renderer.next_change(c,static_layers,noon_epoch)==noon_epoch+120,"custom draw plus next_change controls wake");
+        renderer.register_element("comet",[](wc::Image&,const wc::Element&,const wc::RenderContext&){},[](const wc::Element&,const wc::Theme&,std::time_t n){return n;});
+        rejects([&]{renderer.next_change(c,static_layers,noon_epoch);},"invalid custom deadline rejected instead of busy loop");
+        wc::Image pointer(8,16,{255,0,0,255});wc::write_image(pointer,"test-pointer.png");
+        wc::Scene sprite_scene;wc::Element hand;hand.kind="hand";hand.source="minute";hand.shape="image";hand.image="test-pointer.png";hand.length=.3;hand.pivot_y=1;
+        sprite_scene.theme.elements={hand};
+        auto up=renderer.render(sprite_scene,at(12,0),200,200),right=renderer.render(sprite_scene,at(12,15),200,200);
+        check(up.pixels!=right.pixels,"hand image rotates around configured pivot");
+        std::remove("test-pointer.png");
+        check(renderer.render(sprite_scene,at(12,30),200,200).pixels!=up.pixels,"sprite remains cached between frames");
         std::cout<<"Passed "<<checks<<" checks\n";
         return 0;
     } catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<"\n";return 1;}

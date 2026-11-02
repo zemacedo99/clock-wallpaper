@@ -1,5 +1,6 @@
 #include "wallclock/core.h"
 #include <algorithm>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
 
@@ -93,5 +94,39 @@ std::string visual_key(const Scene& scene,const std::tm& t) {
     if(scene.theme.update_seconds>0)
         out<<':'<<t.tm_year<<':'<<t.tm_yday<<':'<<(t.tm_hour*3600+t.tm_min*60+t.tm_sec)/scene.theme.update_seconds;
     return out.str();
+}
+bool element_visible(const Element& e,const std::tm& t) {
+    if(e.visible_from<0) return true;
+    int m=t.tm_hour*60+t.tm_min;
+    return e.visible_from<e.visible_until ? m>=e.visible_from && m<e.visible_until
+        : m>=e.visible_from || m<e.visible_until;
+}
+double element_angle(const Element& e,const std::tm& t) {
+    if(e.source!="span") return angle(t,e.source)+e.offset;
+    int duration=(e.visible_until-e.visible_from+1440)%1440;
+    if(!duration) throw std::runtime_error("Span requires distinct visibility times");
+    int elapsed=(t.tm_hour*60+t.tm_min-e.visible_from+1440)%1440;
+    double arc=std::fmod(e.arc_end-e.arc_start+360,360);if(arc==0) arc=360;
+    return e.arc_start+arc*elapsed/duration+e.offset;
+}
+std::time_t element_next_change(const Element& e,const Theme& theme,std::time_t now) {
+    auto t=local_time(now);std::time_t best=0;
+    if(e.visible_from>=0) {
+        Config edges;Rule a,b;a.minute=e.visible_from;b.minute=e.visible_until;edges.rules={a,b};
+        Scene static_scene;static_scene.theme.update_seconds=0;
+        best=next_change(edges,static_scene,now);
+    }
+    bool moving=e.kind=="hand" || e.kind=="orbit";
+    bool timed_text=e.kind=="text" && e.text.find('%')!=std::string::npos;
+    if(element_visible(e,t) && (moving || timed_text || (e.kind!="markers" && e.kind!="text"))) {
+        if(e.kind=="orbit" && e.radius==0 && !e.rotate) return best;
+        int period=e.update_seconds<0?theme.update_seconds:e.update_seconds;
+        if(period>0) {
+            int elapsed=t.tm_hour*3600+t.tm_min*60+t.tm_sec;
+            auto candidate=now+period-elapsed%period;
+            best=best?std::min(best,candidate):candidate;
+        }
+    }
+    return best;
 }
 }

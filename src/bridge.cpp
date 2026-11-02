@@ -10,7 +10,7 @@ void require(bool condition){if(!condition)throw std::runtime_error("Null engine
 }
 extern "C" {
 wc_engine* wc_create(const char* path) {
-    try {error.clear();require(path!=nullptr);std::unique_ptr<wc_engine> e(new wc_engine);e->config=wc::load_config(path);return e.release();}
+    try {error.clear();require(path!=nullptr);std::unique_ptr<wc_engine> e(new wc_engine);e->config=wc::load_config(path);e->renderer.validate(e->config);return e.release();}
     catch(const std::exception& e){error=e.what();return nullptr;}
 }
 void wc_destroy(wc_engine* engine){delete engine;}
@@ -25,7 +25,7 @@ int wc_render(wc_engine* engine,int64_t now,int w,int h,const char* output) {
 int64_t wc_next_change(wc_engine* engine,int64_t now) {
     try {
         error.clear();require(engine!=nullptr);auto epoch=static_cast<std::time_t>(now);
-        return wc::next_change(engine->config,wc::select_scene(engine->config,wc::local_time(epoch)),epoch);
+        return engine->renderer.next_change(engine->config,wc::select_scene(engine->config,wc::local_time(epoch)),epoch);
     } catch(const std::exception& e){error=e.what();return -1;}
 }
 }

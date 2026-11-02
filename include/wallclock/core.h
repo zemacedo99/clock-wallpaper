@@ -12,6 +12,10 @@ struct Element {
     double x=.5, y=.5, radius=.28, length=.23, width=.006, size=.012;
     double offset=0;
     int count=12;
+    int update_seconds=-1, visible_from=-1, visible_until=-1;
+    std::string shape="rounded";
+    double pivot_x=.5, pivot_y=.5, tail=0, arc_start=270, arc_end=90, heading_offset=0;
+    bool rotate=false;
 };
 struct Theme {
     std::string name, background, text;
@@ -30,6 +34,7 @@ struct Config {
     std::string default_theme;
     std::map<std::string,Theme> themes;
     std::vector<Rule> rules;
+    std::string fit="fill";
 };
 struct Scene { Theme theme; int rule=-1; };
 Config load_config(const std::string& path);
@@ -40,4 +45,7 @@ Scene select_scene(const Config& config, const std::tm& time);
 std::time_t next_change(const Config& config, const Scene& scene, std::time_t now);
 std::string visual_key(const Scene& scene, const std::tm& time);
 void validate_size(int width, int height);
+bool element_visible(const Element&,const std::tm&);
+double element_angle(const Element&,const std::tm&);
+std::time_t element_next_change(const Element&,const Theme&,std::time_t);
 }

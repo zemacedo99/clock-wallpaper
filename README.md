@@ -4,9 +4,11 @@ A lightweight C++14 static-wallpaper clock: render local time onto a configurabl
 background, apply it, then sleep. No GUI framework, GPU loop, network service or
 script runtime. Two vendored stb headers provide PNG/JPEG/BMP codecs.
 
-Windows is implemented and locally tested. An unverified macOS adapter is included.
-Linux and phones currently have image export and a shared core for native hosts,
-not complete apps. See [platform limitations](docs/platforms.md).
+This combines the native engine with Claude's layer/deadline design. Windows is
+verified against actual desktop pixels across real minute changes. macOS and
+GNOME/KDE adapters are supplied but unverified on hardware. Phones have export and
+a shared core, not installable apps. See [platform limitations](docs/platforms.md)
+and the [branch comparison and diagnoses](docs/branch-comparison.md).
 
 ## Build
 
@@ -40,8 +42,16 @@ From the repository directory (omit `.exe` on other platforms):
 ```
 
 Output directories must exist. Use absolute paths when launching elsewhere. Run
-one instance per wallpaper destination. Stopping leaves the last image in place;
-restore your preferred wallpaper through OS settings. No startup task is installed.
+one native instance per Windows session (duplicates are rejected). Stopping leaves the last image in place;
+restore your preferred wallpaper through OS settings. Running the engine alone
+does not register startup.
+
+For daily Windows use, the optional native `wallclock_startup.exe` registers a
+per-user login entry and supervises the engine without polling. It logs exits,
+restarts conservatively, and supports graceful stopping. See
+[Windows startup and recovery](docs/windows-startup.md) for installation/control
+commands and the [reliability report](docs/windows-reliability.md). Registration
+is explicit; building or running the engine alone does not install it.
 
 ## Configure and extend
 
@@ -61,25 +71,35 @@ Use `--size 2560x1440` for explicit dimensions; backgrounds center-crop to cover
 Drawing sizes scale with the shorter screen edge, so clocks remain circular.
 
 A theme contains ordered `markers`, `hand`, `orbit`, or `text` elements.
-[orbit.ini](examples/orbit.ini) demonstrates a 24-hour pointer that can use a car PNG.
-For new behavior, register an `ElementRenderer`; it receives time, configuration,
-resolution and a canvas, without device APIs. See [theme reference](docs/themes.md).
+[car.ini](examples/car.ini) supplies a rotating car sprite and tapered hand;
+[sky.ini](examples/sky.ini) demonstrates day/night arcs and a transparent crescent.
+For new behavior, register drawing and next-change callbacks. They receive time,
+configuration and geometry without device APIs. See [theme reference](docs/themes.md).
 The [C ABI](include/wallclock/bridge.h) allows future JNI/Swift hosts to use the same core.
 
 ## Battery and scheduling
 
-Default updates are minute-aligned. The next wake is the earliest theme interval,
+Default updates are minute-aligned. The next wake is the earliest layer deadline,
 schedule change, midnight or DST transition. Each wake reads actual wall time;
 Windows time/resume events also recompute the deadline. No system wake is requested.
 `update_seconds = 0` supports schedule-only themes; otherwise use multiples of 60.
 Coarser intervals intentionally leave the hands frozen between updates.
 
-The runner caches one resized background, skips unchanged visual keys, compares
-pixel hashes, and alternates two output files after complete writes. Windows uses
-BMP for low encoding CPU and pauses after display-off/lock notifications. Application
-errors exit rather than retrying in a tight loop. Config reload requires a restart.
+The runner caches one resized background and up to 16 MiB of sprites. Static layers
+request no minute ticks. It compares pixel hashes and writes fresh filenames after
+complete writes, retaining two generated images through a manifest across restarts.
+Windows uses BMP and pauses after display-off/lock notifications. Failed updates
+retry after 60/120/240/300 seconds, with failure and recovery records. Native time
+and resume events interrupt sleep; events received during rendering are preserved.
+Config reload requires a restart.
 
-At 1080p the two RGBA canvases use about 16 MiB; at 4K, about 63 MiB, plus codec and
+`--run` writes a bounded `PREFIX.log` (256 KiB + one rotated file) with timestamps,
+hashes, next deadline and separate drawing/writing/application costs. `--log FILE`
+overrides it. Startup mistakes fail with a nonzero exit code. Closing/killing the
+process still stops updates; use `--run`, not `--render`, for a continuing clock.
+
+With a cached photo background, two RGBA canvases use about 16 MiB at 1080p or
+63 MiB at 4K, plus codec and
 process overhead. Photo decoding temporarily adds memory. BMP writes about 8 MiB
 per 1080p change; OS wallpaper import can dominate the cost. This is not zero-cost,
 and mobile background restrictions prevent promising an accurate minute clock.
@@ -92,4 +112,14 @@ composition; `platform/`: native APIs/waits; `main.cpp`: orchestration;
 
 Tests cover angles, schedule boundaries/rollover, deadlines, deterministic rendering,
 changing hands, reminder text, portrait output, custom renderers, image round trips,
-and invalid input. Tests do not require changing the user's desktop.
+and invalid input, plus Windows lifecycle events and supervisor restart policy.
+Unit tests do not change the desktop. The explicit integration test below does,
+and restores it. Python/Pillow is test tooling only, not an engine dependency.
+
+```powershell
+./scripts/verify-windows.ps1 -Samples 5 -InjectFailure
+python scripts/analyze-verification.py build/verification-YYYYMMDD-HHMMSS
+```
+
+The test briefly exposes the desktop for each capture. Screenshots and restoration
+metadata stay under ignored `build/`. See [measured results](docs/validation.md).

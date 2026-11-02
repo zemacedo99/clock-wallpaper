@@ -74,6 +74,7 @@ Config load_config(const std::string& path) {
                 if(k=="width") c.width=integer(v,64,8192);
                 else if(k=="height") c.height=integer(v,64,8192);
                 else if(k=="theme") c.default_theme=v;
+                else if(k=="fit" && (v=="fill" || v=="keep")) c.fit=v;
                 else known=false;
             } else if(theme) {
                 if(k=="background") theme->background=asset(base,v);
@@ -105,6 +106,17 @@ Config load_config(const std::string& path) {
                 else if(k=="size") element->size=number(v,.0001,.5);
                 else if(k=="offset") element->offset=number(v,-360,360);
                 else if(k=="count") element->count=integer(v,1,360);
+                else if(k=="update_seconds") element->update_seconds=integer(v,60,86400);
+                else if(k=="visible_from") element->visible_from=parse_time(v);
+                else if(k=="visible_until") element->visible_until=parse_time(v);
+                else if(k=="shape") element->shape=v;
+                else if(k=="pivot_x") element->pivot_x=number(v,0,1);
+                else if(k=="pivot_y") element->pivot_y=number(v,0,1);
+                else if(k=="tail") element->tail=number(v,0,1);
+                else if(k=="arc_start") element->arc_start=number(v,0,360);
+                else if(k=="arc_end") element->arc_end=number(v,0,360);
+                else if(k=="heading_offset") element->heading_offset=number(v,-360,360);
+                else if(k=="rotate" && (v=="true" || v=="false")) element->rotate=v=="true";
                 else known=false;
             } else known=false;
             if(!known) throw std::runtime_error("Unknown key: "+k);
@@ -112,8 +124,13 @@ Config load_config(const std::string& path) {
         validate_size(c.width,c.height);
         if(!c.themes.count(c.default_theme)) throw std::runtime_error("Default theme does not exist");
         for(const auto& pair:c.themes) for(const auto& e:pair.second.elements) {
-            if(e.source!="hour" && e.source!="minute" && e.source!="day") throw std::runtime_error("Invalid time source");
-            if((e.kind=="hand" || e.kind=="orbit") && pair.second.update_seconds==0)
+            if(e.source!="hour" && e.source!="minute" && e.source!="day" && e.source!="span") throw std::runtime_error("Invalid time source");
+            if((e.visible_from<0)!=(e.visible_until<0) || (e.visible_from>=0 && e.visible_from==e.visible_until)) throw std::runtime_error("Visibility needs two distinct times");
+            if(e.source=="span" && e.visible_from<0) throw std::runtime_error("Span source needs a visibility interval");
+            if(e.update_seconds>=0 && e.update_seconds%60) throw std::runtime_error("Element cadence must be a multiple of 60");
+            if(e.shape!="rounded" && e.shape!="triangle" && e.shape!="image" && e.shape!="crescent") throw std::runtime_error("Unknown shape");
+            if(e.shape=="image" && e.image.empty()) throw std::runtime_error("Image shape requires image path");
+            if((e.kind=="hand" || e.kind=="orbit" || (e.kind=="text" && e.text.find('%')!=std::string::npos)) && pair.second.update_seconds==0 && e.update_seconds<0)
                 throw std::runtime_error("Moving elements need a nonzero cadence");
         }
         for(const auto& r:c.rules) if(!r.theme.empty() && !c.themes.count(r.theme)) throw std::runtime_error("Rule theme does not exist");

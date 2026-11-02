@@ -6,24 +6,29 @@ Research checked 9 September 2026. OS permissions and desktop policy can reject 
 | --- | --- | --- |
 | Windows | Native adapter implemented | One image across monitors; primary resolution with `--auto-size` |
 | macOS | AppKit adapter supplied, unverified | Same image on attached screens; Spaces and mixed displays need testing |
-| Linux | Export only | Separate GNOME, KDE, X11/Wayland adapters needed |
+| Linux | GNOME/KDE adapter supplied, unverified | Other desktops remain export-only |
 | Android | Export and shared C ABI | No installable app/JNI host; minute background refresh not guaranteed |
 | iOS | Export and shared C ABI | User-configured Shortcuts; no automatic minute-clock promise |
 
 ## Windows
 
 [SystemParametersInfoW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow)
-sets the wallpaper using `SPI_SETDESKWALLPAPER` and `SPIF_SENDCHANGE`, avoiding a
-profile update every minute. A hidden top-level window receives time/resume/display
+sets the wallpaper using `SPI_SETDESKWALLPAPER`, `SPIF_UPDATEINIFILE` and `SPIF_SENDCHANGE`.
+Readback checks Windows' selection; the integration test separately checks visible
+pixels. A hidden top-level window receives time/resume/display
 events and uses one timer. Display-off/lock events suppress rendering until on/unlock.
 [Power notifications](https://learn.microsoft.com/en-us/windows/win32/power/power-setting-guids)
 distinguish off, on and dim (dim is treated as visible). Unavailable registrations
 fall back to normal scheduled updates. A process launched while already locked may
 render once before it learns the state.
 
-The app does not change fit settings: choose Fill in Windows for a matching-resolution
-image. Separate per-monitor images would use an `IDesktopWallpaper` adapter; the core
-already renders arbitrary sizes. No startup registration or restore-on-exit is installed.
+`fit=fill` (default) selects Fill once; `fit=keep` preserves the current layout.
+A named session mutex rejects a second native engine. Fresh filenames and a retention
+manifest avoid path reuse across restarts while retaining two files. Separate
+per-monitor images would use an `IDesktopWallpaper` adapter; the core
+already renders arbitrary sizes. Optional per-user login startup and conservative
+supervision are described in [Windows daily operation](windows-startup.md).
+Stopping leaves the last wallpaper in place; tests explicitly restore it.
 
 ## macOS
 
@@ -36,13 +41,16 @@ not benchmarked and may exceed image-generation cost.
 
 ## Linux
 
-Implement `platform.h` independently and replace `unsupported.cpp` in CMake.
-GNOME exposes [GSettings background keys](https://help.gnome.org/system-admin-guide/desktop-background.html);
-consider both light/dark keys. KDE Plasma and individual Wayland compositors have
-different APIs; X11 root-pixmap behavior is not portable to Wayland. There is no
-universal Linux wallpaper setter. Use explicit subprocess arguments if calling a
-CLI, plus native absolute timers and desktop visibility/resume events.
-Until implemented, apply/run/auto-size fail explicitly; `--render --size ...` works.
+`linux.cpp` supports GNOME's [GSettings background keys](https://help.gnome.org/system-admin-guide/desktop-background.html)
+(including the modern dark key) and KDE's `plasma-apply-wallpaperimage`. Other desktops
+fail explicitly rather than guessing. Override detection with
+`WALLCLOCK_LINUX_BACKEND=gnome|kde`. Native timerfd waits handle absolute deadlines,
+suspend and wall-clock changes; subprocess arguments never pass through a shell and
+completion is bounded to 15 seconds. No installed UI library is linked.
+Provide `--size`; auto-size and visibility suppression are not implemented on Linux.
+The GNOME adapter requires a version with `picture-uri-dark`; partial setter errors
+are logged/retried. There is no universal X11/Wayland setter. This source was not
+compiled here: available WSL distributions have no C++ compiler installed.
 
 ## Android
 

@@ -6,6 +6,8 @@
 
 namespace wc { namespace platform {
 bool visible(){return true;}
+void configure(const std::string&){[NSApplication sharedApplication];}
+void remove_file(const std::string& path){std::remove(path.c_str());}
 std::pair<int,int> screen_size() {
     @autoreleasepool {
         NSScreen* screen=[NSScreen mainScreen];
@@ -25,10 +27,11 @@ void apply(const std::string& path) {
     }
 }
 void publish(const std::string& from,const std::string& to){if(std::rename(from.c_str(),to.c_str())) throw std::runtime_error("Cannot publish wallpaper");}
-void wait_until(std::time_t deadline) {
+Wake wait_until(std::time_t deadline) {
     @autoreleasepool {
         __block bool wake=false;
-        auto block=^(NSNotification*) {wake=true;};
+        __block bool environment=false;
+        auto block=^(NSNotification*) {wake=true;environment=true;};
         NSNotificationCenter* system=[NSNotificationCenter defaultCenter];
         NSNotificationCenter* workspace=[[NSWorkspace sharedWorkspace] notificationCenter];
         id clock=[system addObserverForName:NSSystemClockDidChangeNotification object:nil queue:nil usingBlock:block];
@@ -38,6 +41,7 @@ void wait_until(std::time_t deadline) {
         NSTimer* timer=[NSTimer scheduledTimerWithTimeInterval:std::max(0.001,double(deadline-std::time(nullptr))) repeats:NO block:^(NSTimer*){wake=true;}];
         while(!wake) [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
         [timer invalidate]; [system removeObserver:clock];[system removeObserver:display];[workspace removeObserver:resume];
+        return environment?Wake::environment:Wake::deadline;
     }
 }
 const char* name(){return "macOS (same image on attached screens; adapter unverified on hardware)";}

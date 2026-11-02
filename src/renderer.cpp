@@ -41,6 +41,22 @@ Color sample(const Image& im,double x,double y) {
         (im.pixels[(size_t(y1)*im.width+x0)*4+k]*(1-fx)+im.pixels[(size_t(y1)*im.width+x1)*4+k]*fx)*fy+.5);
     return Color{channels[0],channels[1],channels[2],channels[3]};
 }
+void sprite(Image& im,const Image& src,double x,double y,double length,double degrees,double px,double py) {
+    double scale=length/std::max(src.width,src.height),a=degrees*pi/180,cs=std::cos(a),sn=std::sin(a);
+    double x0=im.width,y0=im.height,x1=0,y1=0;
+    for(int i=0;i<4;++i) {
+        double xx=((i&1?src.width:0)-px*src.width)*scale;
+        double yy=((i&2?src.height:0)-py*src.height)*scale;
+        double rx=x+cs*xx-sn*yy,ry=y+sn*xx+cs*yy;
+        x0=std::min(x0,rx);x1=std::max(x1,rx);y0=std::min(y0,ry);y1=std::max(y1,ry);
+    }
+    for(int yy=std::max(0,int(std::floor(y0)));yy<std::min(im.height,int(std::ceil(y1)));++yy)
+        for(int xx=std::max(0,int(std::floor(x0)));xx<std::min(im.width,int(std::ceil(x1)));++xx) {
+            double dx=xx+.5-x,dy=yy+.5-y;
+            double sx=(cs*dx+sn*dy)/scale+px*src.width-.5,sy=(-sn*dx+cs*dy)/scale+py*src.height-.5;
+            if(sx>=0 && sy>=0 && sx<src.width && sy<src.height) im.blend(xx,yy,sample(src,sx,sy));
+        }
+}
 // Small built-in 5x7 uppercase font, column bits from top to bottom. No font runtime.
 const unsigned char letters[26][5]={
  {126,9,9,9,126},{127,73,73,73,54},{62,65,65,65,34},{127,65,65,34,28},
@@ -74,28 +90,72 @@ Renderer::Renderer() {
             circle(im,e.x*c.width+std::sin(a)*e.radius*c.unit,e.y*c.height-std::cos(a)*e.radius*c.unit,e.size*c.unit/2,e.color);
         }
     });
-    register_element("hand",[](Image& im,const Element& e,const RenderContext& c){
-        double a=(angle(c.time,e.source)+e.offset)*pi/180;
-        line(im,e.x*c.width,e.y*c.height,e.x*c.width+std::sin(a)*e.length*c.unit,
-             e.y*c.height-std::cos(a)*e.length*c.unit,e.width*c.unit/2,e.color);
+    auto get_sprite=[this](const std::string& path)->const Image& {
+        auto found=sprites_.find(path);
+        if(found!=sprites_.end()) return found->second;
+        Image decoded=load_image(path);
+        if(decoded.pixels.size()>16*1024*1024) throw std::runtime_error("Sprite exceeds 16 MiB decoded budget");
+        size_t bytes=decoded.pixels.size();for(const auto& item:sprites_) bytes+=item.second.pixels.size();
+        if(bytes>16*1024*1024) sprites_.clear();
+        return sprites_.emplace(path,std::move(decoded)).first->second;
+    };
+    register_element("hand",[get_sprite](Image& im,const Element& e,const RenderContext& c){
+        double degrees=element_angle(e,c.time),a=degrees*pi/180;
+        if(e.shape=="image") {
+            sprite(im,get_sprite(e.image),e.x*c.width,e.y*c.height,e.length*c.unit,degrees,e.pivot_x,e.pivot_y);return;
+        }
+        double ax=e.x*c.width-std::sin(a)*e.tail*c.unit,ay=e.y*c.height+std::cos(a)*e.tail*c.unit;
+        double bx=e.x*c.width+std::sin(a)*e.length*c.unit,by=e.y*c.height-std::cos(a)*e.length*c.unit;
+        if(e.shape=="triangle") {
+            // Short overlapping discs make a tapered pointer without a full-frame AA buffer.
+            int steps=std::max(1,int((e.length+e.tail)*c.unit*2));
+            for(int i=0;i<=steps;++i) {double f=double(i)/steps;circle(im,ax+(bx-ax)*f,ay+(by-ay)*f,e.width*c.unit/2*(1-f),e.color);}
+        } else line(im,ax,ay,bx,by,e.width*c.unit/2,e.color);
     });
-    register_element("orbit",[](Image& im,const Element& e,const RenderContext& c){
-        double a=(angle(c.time,e.source)+e.offset)*pi/180;
+    register_element("orbit",[get_sprite](Image& im,const Element& e,const RenderContext& c){
+        double degrees=element_angle(e,c.time),a=degrees*pi/180;
         double x=e.x*c.width+std::sin(a)*e.radius*c.unit,y=e.y*c.height-std::cos(a)*e.radius*c.unit;
-        if(e.image.empty()) {circle(im,x,y,e.size*c.unit/2,e.color);return;}
-        Image sprite=load_image(e.image);
-        double scale=e.size*c.unit/std::max(sprite.width,sprite.height);
-        int w=std::max(1,int(sprite.width*scale)),h=std::max(1,int(sprite.height*scale));
-        for(int yy=0;yy<h;++yy) for(int xx=0;xx<w;++xx)
-            im.blend(int(x)-w/2+xx,int(y)-h/2+yy,sample(sprite,(xx+.5)/scale-.5,(yy+.5)/scale-.5));
+        if(!e.image.empty()) {sprite(im,get_sprite(e.image),x,y,e.size*c.unit,e.rotate?degrees+e.heading_offset:0,e.pivot_x,e.pivot_y);return;}
+        if(e.shape!="crescent") {circle(im,x,y,e.size*c.unit/2,e.color);return;}
+        double r=e.size*c.unit/2;
+        for(int yy=std::max(0,int(y-r-1));yy<std::min(im.height,int(y+r+2));++yy)
+            for(int xx=std::max(0,int(x-r-1));xx<std::min(im.width,int(x+r+2));++xx) {
+                double dx=xx+.5-x,dy=yy+.5-y;
+                double outer=r+.5-std::sqrt(dx*dx+dy*dy);
+                dx-=r*.45;dy+=r*.24;
+                double cut=std::sqrt(dx*dx+dy*dy)-r*.86+.5;
+                im.blend(xx,yy,e.color,std::min(outer,cut)); // Transparent cutout preserves photos.
+            }
     });
     register_element("text",[](Image& im,const Element& e,const RenderContext& c){
-        text(im,e.text,e.x*c.width,e.y*c.height,e.size*c.unit,e.color);
+        char formatted[512];std::string value=e.text;
+        if(value.find('%')!=std::string::npos) {
+            if(!std::strftime(formatted,sizeof(formatted),value.c_str(),&c.time)) throw std::runtime_error("Formatted text exceeds 511 bytes");
+            value=formatted;
+        }
+        text(im,value,e.x*c.width,e.y*c.height,e.size*c.unit,e.color);
     });
 }
-void Renderer::register_element(const std::string& name,ElementRenderer render) {
-    if(name.empty() || !render) throw std::runtime_error("Invalid element renderer");
+void Renderer::register_element(const std::string& name,ElementRenderer render,ElementDeadline deadline) {
+    if(name.empty() || !render || !deadline) throw std::runtime_error("Invalid layer callbacks");
     elements_[name]=std::move(render);
+    deadlines_[name]=std::move(deadline);
+}
+void Renderer::validate(const Config& config) const {
+    for(const auto& theme:config.themes) for(const auto& e:theme.second.elements)
+        if(!elements_.count(e.kind)) throw std::runtime_error("Unknown layer kind: "+e.kind);
+}
+std::time_t Renderer::next_change(const Config& config,const Scene& scene,std::time_t now) const {
+    Scene calendar=scene;calendar.theme.update_seconds=0;
+    auto best=wc::next_change(config,calendar,now);
+    for(const auto& e:scene.theme.elements) {
+        auto found=deadlines_.find(e.kind);
+        if(found==deadlines_.end()) throw std::runtime_error("No deadline callback for layer: "+e.kind);
+        auto next=found->second(e,scene.theme,now);
+        if(next && next<=now) throw std::runtime_error("Layer deadline must be strictly in the future: "+e.kind);
+        if(next) best=std::min(best,next);
+    }
+    return best;
 }
 Image Renderer::render(const Scene& scene,const std::tm& time,int w,int h) {
     validate_size(w,h); const auto& theme=scene.theme;
@@ -113,6 +173,7 @@ Image Renderer::render(const Scene& scene,const std::tm& time,int w,int h) {
     Image output=background_;
     RenderContext context{time,w,h,double(std::min(w,h))};
     for(const auto& element:theme.elements) {
+        if(!element_visible(element,time)) continue;
         auto fn=elements_.find(element.kind);
         if(fn==elements_.end()) throw std::runtime_error("No renderer registered for element: "+element.kind);
         fn->second(output,element,context);
